@@ -70,6 +70,34 @@ def count_operations(operations):
     return counts
 
 
+def render_agent_card(name, status, message):
+    icons = {
+        "SUCCESS": "✅",
+        "WAITING": "⏳",
+        "FAILED": "❌",
+        "BLOCKED": "🛑",
+        "NOT NEEDED": "➖",
+    }
+
+    icon = icons.get(status, "•")
+
+    st.markdown(
+        f"""
+        <div style="
+            border:1px solid rgba(128,128,128,0.30);
+            border-radius:12px;
+            padding:14px;
+            margin-bottom:10px;
+        ">
+            <strong>{icon} {name}</strong><br>
+            <small>{status}</small><br>
+            {message}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 st.set_page_config(
     page_title="Agentic Intent Reconciliation",
     page_icon="⚡",
@@ -189,7 +217,6 @@ with right:
 
             if response.ok:
                 st.session_state.yamls["current"] = current_text
-
                 st.session_state.pop("plan", None)
                 st.session_state.pop("result", None)
 
@@ -286,30 +313,11 @@ if "plan" in st.session_state:
 
     metric1, metric2, metric3, metric4, metric5 = st.columns(5)
 
-    metric1.metric(
-        "Operations",
-        len(operations),
-    )
-
-    metric2.metric(
-        "ADD",
-        counts["ADD"],
-    )
-
-    metric3.metric(
-        "MODIFY",
-        counts["MODIFY"],
-    )
-
-    metric4.metric(
-        "DELETE",
-        counts["DELETE"],
-    )
-
-    metric5.metric(
-        "Plan risk",
-        plan.get("risk", "LOW"),
-    )
+    metric1.metric("Operations", len(operations))
+    metric2.metric("ADD", counts["ADD"])
+    metric3.metric("MODIFY", counts["MODIFY"])
+    metric4.metric("DELETE", counts["DELETE"])
+    metric5.metric("Plan risk", plan.get("risk", "LOW"))
 
     st.markdown("#### Detected drift")
 
@@ -344,20 +352,9 @@ if "plan" in st.session_state:
             operations,
             start=1,
         ):
-            action = operation.get(
-                "action",
-                "UNKNOWN",
-            )
-
-            intent_type = operation.get(
-                "intent_type",
-                "Unknown",
-            )
-
-            intent_id = operation.get(
-                "intent_id",
-                "Unknown",
-            )
+            action = operation.get("action", "UNKNOWN")
+            intent_type = operation.get("intent_type", "Unknown")
+            intent_id = operation.get("intent_id", "Unknown")
 
             with st.expander(
                 f"Step {index}: "
@@ -375,17 +372,12 @@ if "plan" in st.session_state:
                     "**Approval:** "
                     + (
                         "`Required`"
-                        if operation.get(
-                            "requires_approval"
-                        )
+                        if operation.get("requires_approval")
                         else "`Not required`"
                     )
                 )
 
-                changes = operation.get(
-                    "changes",
-                    {},
-                )
+                changes = operation.get("changes", {})
 
                 if changes:
                     rows = []
@@ -394,12 +386,8 @@ if "plan" in st.session_state:
                         rows.append(
                             {
                                 "Field": field,
-                                "Current": values.get(
-                                    "before"
-                                ),
-                                "Desired": values.get(
-                                    "after"
-                                ),
+                                "Current": values.get("before"),
+                                "Desired": values.get("after"),
                             }
                         )
 
@@ -420,22 +408,181 @@ if "plan" in st.session_state:
 
 
 # ---------------------------------------------------------
+# Agent workflow
+# ---------------------------------------------------------
+
+st.subheader("5. Agent workflow")
+
+plan_exists = "plan" in st.session_state
+result_exists = "result" in st.session_state
+
+plan = st.session_state.get("plan", {})
+result = st.session_state.get("result", {})
+
+operations = plan.get("operations", [])
+records = result.get("records", [])
+status = result.get("status")
+
+failed_records = [
+    record
+    for record in records
+    if record.get("status") == "FAILED"
+]
+
+agent_items = [
+    (
+        "Intent Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        (
+            "Loaded and interpreted desired YAML."
+            if plan_exists
+            else "Waiting for drift preview."
+        ),
+    ),
+    (
+        "State Collector Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        (
+            "Loaded current deployed YAML."
+            if plan_exists
+            else "Waiting for current state."
+        ),
+    ),
+    (
+        "Drift Detection Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        (
+            f"Detected {len(operations)} operation(s)."
+            if plan_exists
+            else "Waiting for comparison."
+        ),
+    ),
+    (
+        "Dependency Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        (
+            "Ordered operations using dependency rules."
+            if plan_exists
+            else "Waiting for detected drift."
+        ),
+    ),
+    (
+        "Planner Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        plan.get(
+            "explanation",
+            "Waiting for plan generation.",
+        ),
+    ),
+    (
+        "Safety Agent",
+        "SUCCESS" if plan_exists else "WAITING",
+        (
+            f"Risk: {plan.get('risk', 'LOW')}; "
+            f"approval required: "
+            f"{plan.get('requires_approval', False)}."
+            if plan_exists
+            else "Waiting for plan review."
+        ),
+    ),
+]
+
+if result_exists:
+    if status == "APPROVAL_REQUIRED":
+        execution_status = "BLOCKED"
+        execution_message = "Waiting for human approval."
+
+    elif status == "FAILED":
+        execution_status = "FAILED"
+        execution_message = (
+            failed_records[-1].get("message")
+            if failed_records
+            else "Execution failed."
+        )
+
+    else:
+        execution_status = "SUCCESS"
+        execution_message = (
+            f"Generated {len(records)} execution record(s)."
+        )
+
+    verification_status = (
+        "SUCCESS"
+        if status in {"CONVERGED", "NO_CHANGES"}
+        else "FAILED"
+        if status == "FAILED"
+        else "WAITING"
+    )
+
+    agent_items.extend(
+        [
+            (
+                "Execution Agent",
+                execution_status,
+                execution_message,
+            ),
+            (
+                "Verification Agent",
+                verification_status,
+                result.get(
+                    "summary",
+                    "Verification completed.",
+                ),
+            ),
+            (
+                "Recovery Agent",
+                (
+                    "SUCCESS"
+                    if failed_records
+                    else "NOT NEEDED"
+                ),
+                (
+                    "Failure was detected and retry activity occurred."
+                    if failed_records
+                    else "No recovery action was required."
+                ),
+            ),
+        ]
+    )
+
+else:
+    agent_items.extend(
+        [
+            (
+                "Execution Agent",
+                "WAITING",
+                "Waiting for reconciliation.",
+            ),
+            (
+                "Verification Agent",
+                "WAITING",
+                "Waiting for execution.",
+            ),
+            (
+                "Recovery Agent",
+                "WAITING",
+                "Activated only when execution fails.",
+            ),
+        ]
+    )
+
+agent_columns = st.columns(3)
+
+for index, agent in enumerate(agent_items):
+    with agent_columns[index % 3]:
+        render_agent_card(*agent)
+
+
+# ---------------------------------------------------------
 # Result display
 # ---------------------------------------------------------
 
 if "result" in st.session_state:
-    st.subheader("5. Execution result")
+    st.subheader("6. Execution result")
 
     result = st.session_state.result
-    status = result.get(
-        "status",
-        "UNKNOWN",
-    )
-
-    summary = result.get(
-        "summary",
-        "",
-    )
+    status = result.get("status", "UNKNOWN")
+    summary = result.get("summary", "")
 
     if status in {
         "CONVERGED",
@@ -455,10 +602,7 @@ if "result" in st.session_state:
             f"{status}: {summary}"
         )
 
-    records = result.get(
-        "records",
-        [],
-    )
+    records = result.get("records", [])
 
     if records:
         st.markdown("#### Execution records")
@@ -469,19 +613,13 @@ if "result" in st.session_state:
             hide_index=True,
         )
 
-    remaining = result.get(
-        "remaining",
-        [],
-    )
+    remaining = result.get("remaining", [])
 
     if remaining:
         st.markdown("#### Remaining drift")
-
         st.json(remaining)
 
-    with st.expander(
-        "Raw workflow result"
-    ):
+    with st.expander("Raw workflow result"):
         st.json(result)
 
 
@@ -489,7 +627,7 @@ if "result" in st.session_state:
 # Final YAML
 # ---------------------------------------------------------
 
-st.subheader("6. Final deployed YAML")
+st.subheader("7. Final deployed YAML")
 
 st.code(
     st.session_state.yamls["current"],
