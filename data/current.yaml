@@ -1,0 +1,40 @@
+resources:
+  - intent_type: DeviceMF
+    intent_id: device-mf-1
+    parent_id: null
+    version: 1
+    attributes:
+      device_name: olt-sim-1
+      device_family: FX
+      admin_state: enabled
+  - intent_type: DeviceConfigMF
+    intent_id: device-config-mf-1
+    parent_id: device-mf-1
+    version: 1
+    attributes:
+      slot: LT1
+      profile: access-profile-v1
+      admin_state: enabled
+  - intent_type: Uplink
+    intent_id: uplink-1
+    parent_id: device-config-mf-1
+    version: 1
+    attributes:
+      port: network-1
+      vlan: 100
+      admin_state: enabled
+  - intent_type: Fiber
+    intent_id: fiber-1
+    parent_id: uplink-1
+    version: 1
+    attributes:
+      fiber_id: FBR-001
+      status: inactive
+  - intent_type: ONT
+    intent_id: ont-1
+    parent_id: fiber-1
+    version: 1
+    attributes:
+      serial_number: SIMONT001
+      vlan: 100
+      admin_state: disabled

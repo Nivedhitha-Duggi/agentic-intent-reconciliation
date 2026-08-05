@@ -1,0 +1,3 @@
+# Manager Update
+
+I completed a clean-room, YAML-driven Agentic AI intent-reconciliation prototype for DeviceMF, DeviceConfigMF, Uplink, Fiber, and ONT. The system accepts desired and deployed YAML, validates parent relationships, detects ADD/MODIFY/DELETE drift, creates a dependency-aware plan, applies corrections to a digital twin, rewrites the deployed YAML, retries temporary failures, and independently verifies convergence. A LangGraph/OpenAI layer provides real agents for intent interpretation, plan explanation, safety review, execution coordination, and verification while deterministic tools retain control of network changes.
