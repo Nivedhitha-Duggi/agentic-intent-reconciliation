@@ -2,6 +2,74 @@ import requests
 import streamlit as st
 
 
+def flatten_operations(operations):
+    rows = []
+
+    for operation in operations:
+        action = operation.get("action", "UNKNOWN")
+        intent_type = operation.get("intent_type", "Unknown")
+        intent_id = operation.get("intent_id", "Unknown")
+        changes = operation.get("changes", {})
+
+        if action == "MODIFY" and changes:
+            for field, values in changes.items():
+                rows.append(
+                    {
+                        "Action": action,
+                        "Intent Type": intent_type,
+                        "Intent ID": intent_id,
+                        "Field": field,
+                        "Current": values.get("before"),
+                        "Desired": values.get("after"),
+                        "Risk": operation.get("risk", "LOW"),
+                    }
+                )
+
+        elif action == "ADD":
+            rows.append(
+                {
+                    "Action": action,
+                    "Intent Type": intent_type,
+                    "Intent ID": intent_id,
+                    "Field": "Entire resource",
+                    "Current": "Missing",
+                    "Desired": "Resource must be created",
+                    "Risk": operation.get("risk", "LOW"),
+                }
+            )
+
+        elif action == "DELETE":
+            rows.append(
+                {
+                    "Action": action,
+                    "Intent Type": intent_type,
+                    "Intent ID": intent_id,
+                    "Field": "Entire resource",
+                    "Current": "Resource exists",
+                    "Desired": "Resource must be removed",
+                    "Risk": operation.get("risk", "LOW"),
+                }
+            )
+
+    return rows
+
+
+def count_operations(operations):
+    counts = {
+        "ADD": 0,
+        "MODIFY": 0,
+        "DELETE": 0,
+    }
+
+    for operation in operations:
+        action = operation.get("action")
+
+        if action in counts:
+            counts[action] += 1
+
+    return counts
+
+
 st.set_page_config(
     page_title="Agentic Intent Reconciliation",
     page_icon="⚡",
@@ -120,9 +188,7 @@ with right:
             )
 
             if response.ok:
-                st.session_state.yamls["current"] = (
-                    current_text
-                )
+                st.session_state.yamls["current"] = current_text
 
                 st.session_state.pop("plan", None)
                 st.session_state.pop("result", None)
@@ -186,9 +252,7 @@ with col2:
             )
             response.raise_for_status()
 
-            st.session_state.result = (
-                response.json()
-            )
+            st.session_state.result = response.json()
 
             if st.session_state.result.get("plan"):
                 st.session_state.plan = (
@@ -201,9 +265,7 @@ with col2:
             )
             yaml_response.raise_for_status()
 
-            st.session_state.yamls = (
-                yaml_response.json()
-            )
+            st.session_state.yamls = yaml_response.json()
 
         except Exception as exc:
             st.error(
@@ -212,11 +274,67 @@ with col2:
 
 
 # ---------------------------------------------------------
+# Reconciliation summary
+# ---------------------------------------------------------
+
+if "plan" in st.session_state:
+    plan = st.session_state.plan
+    operations = plan.get("operations", [])
+    counts = count_operations(operations)
+
+    st.subheader("3. Reconciliation summary")
+
+    metric1, metric2, metric3, metric4, metric5 = st.columns(5)
+
+    metric1.metric(
+        "Operations",
+        len(operations),
+    )
+
+    metric2.metric(
+        "ADD",
+        counts["ADD"],
+    )
+
+    metric3.metric(
+        "MODIFY",
+        counts["MODIFY"],
+    )
+
+    metric4.metric(
+        "DELETE",
+        counts["DELETE"],
+    )
+
+    metric5.metric(
+        "Plan risk",
+        plan.get("risk", "LOW"),
+    )
+
+    st.markdown("#### Detected drift")
+
+    drift_rows = flatten_operations(operations)
+
+    if drift_rows:
+        st.dataframe(
+            drift_rows,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+        st.success(
+            "No drift detected. "
+            "Desired and deployed states already match."
+        )
+
+
+# ---------------------------------------------------------
 # Plan display
 # ---------------------------------------------------------
 
 if "plan" in st.session_state:
-    st.subheader("3. Trusted remediation plan")
+    st.subheader("4. Trusted remediation plan")
 
     plan = st.session_state.plan
     operations = plan.get("operations", [])
@@ -306,7 +424,7 @@ if "plan" in st.session_state:
 # ---------------------------------------------------------
 
 if "result" in st.session_state:
-    st.subheader("4. Execution result")
+    st.subheader("5. Execution result")
 
     result = st.session_state.result
     status = result.get(
@@ -371,7 +489,7 @@ if "result" in st.session_state:
 # Final YAML
 # ---------------------------------------------------------
 
-st.subheader("5. Final deployed YAML")
+st.subheader("6. Final deployed YAML")
 
 st.code(
     st.session_state.yamls["current"],
